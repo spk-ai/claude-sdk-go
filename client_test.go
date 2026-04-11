@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -86,6 +87,23 @@ func TestParseIncomingMessageTypes(t *testing.T) {
 	}
 }
 
+func TestParseIncomingMessageInvalidJSON(t *testing.T) {
+	_, err := parseIncomingMessage(json.RawMessage(`{"type":"system"`))
+	if err == nil {
+		t.Fatalf("expected error for invalid JSON")
+	}
+}
+
+func TestResultDataUnmarshalObject(t *testing.T) {
+	var result ResultData
+	if err := json.Unmarshal([]byte(`{"result":"finished"}`), &result); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if result.Text != "finished" {
+		t.Fatalf("expected text 'finished', got %q", result.Text)
+	}
+}
+
 func TestToolResultContentVariants(t *testing.T) {
 	stringPayload := `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok","is_error":false}]}}`
 	parsed, err := parseIncomingMessage(json.RawMessage(stringPayload))
@@ -141,6 +159,231 @@ func TestPermissionDenialsVariants(t *testing.T) {
 	}
 	if len(denials) != 1 || denials[0].ToolName != "bash" {
 		t.Fatalf("unexpected denials: %+v", denials)
+	}
+}
+
+func TestBuildEnv(t *testing.T) {
+	t.Setenv("CLAUDECODE", "1")
+	t.Setenv("KEEP_ME", "yes")
+	env := buildEnv([]string{"EXTRA_ENV=1"})
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "CLAUDECODE=") {
+			t.Fatalf("CLAUDECODE should be stripped")
+		}
+	}
+	if !containsEnv(env, "KEEP_ME=yes") {
+		t.Fatalf("expected KEEP_ME to be preserved")
+	}
+	if !containsEnv(env, "EXTRA_ENV=1") {
+		t.Fatalf("expected EXTRA_ENV to be appended")
+	}
+}
+
+func TestInitializeHandshake(t *testing.T) {
+	client, scanner, writer, cleanup := newMockPipeClient(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	opts := Options{SystemPrompt: "system", Model: "model", MaxTurns: 2}
+	serverErr := make(chan error, 1)
+	go func() {
+		raw, err := readJSONLine(scanner)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		var req InitializeControlRequest
+		if err := json.Unmarshal(raw, &req); err != nil {
+			serverErr <- err
+			return
+		}
+		if req.Request.Subtype != "initialize" {
+			serverErr <- errors.New("expected initialize request")
+			return
+		}
+		if req.Request.SystemPrompt != opts.SystemPrompt {
+			serverErr <- errors.New("system prompt mismatch")
+			return
+		}
+		if req.Request.Model != opts.Model {
+			serverErr <- errors.New("model mismatch")
+			return
+		}
+		if req.Request.MaxTurns == nil || *req.Request.MaxTurns != opts.MaxTurns {
+			serverErr <- errors.New("max turns mismatch")
+			return
+		}
+		resp := ControlResponseMessage{
+			Type: "control_response",
+			Response: ControlResponsePayload{
+				Subtype:   "success",
+				RequestID: req.RequestID,
+			},
+		}
+		if err := writeJSONLine(writer, resp); err != nil {
+			serverErr <- err
+			return
+		}
+		serverErr <- nil
+	}()
+
+	if err := client.initialize(ctx, opts); err != nil {
+		t.Fatalf("initialize failed: %v", err)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("server error: %v", err)
+	}
+}
+
+func TestTurnEndToEnd(t *testing.T) {
+	client, scanner, writer, cleanup := newMockPipeClient(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	serverErr := make(chan error, 1)
+	go func() {
+		initRaw, err := readJSONLine(scanner)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		var initReq InitializeControlRequest
+		if err := json.Unmarshal(initRaw, &initReq); err != nil {
+			serverErr <- err
+			return
+		}
+		initResp := ControlResponseMessage{
+			Type: "control_response",
+			Response: ControlResponsePayload{
+				Subtype:   "success",
+				RequestID: initReq.RequestID,
+			},
+		}
+		if err := writeJSONLine(writer, initResp); err != nil {
+			serverErr <- err
+			return
+		}
+
+		userRaw, err := readJSONLine(scanner)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		var user outboundUserMessage
+		if err := json.Unmarshal(userRaw, &user); err != nil {
+			serverErr <- err
+			return
+		}
+		if user.Type != "user" || user.Message.Content != "Hello" {
+			serverErr <- errors.New("unexpected user message")
+			return
+		}
+		if user.ParentToolUseID != nil {
+			serverErr <- errors.New("parent_tool_use_id should be null")
+			return
+		}
+		if err := writeJSONLine(writer, SystemMessage{Type: "system", Subtype: "init"}); err != nil {
+			serverErr <- err
+			return
+		}
+		assistant := AssistantMessage{
+			Type: "assistant",
+			Message: ChatMessage{
+				Role: "assistant",
+				Content: []ContentBlock{
+					{Type: "text", Text: "hi"},
+				},
+			},
+		}
+		if err := writeJSONLine(writer, assistant); err != nil {
+			serverErr <- err
+			return
+		}
+		requestID := "req-tool"
+		controlReq := ControlRequestMessage{
+			Type:      "control_request",
+			RequestID: requestID,
+			Request: ControlRequestPayload{
+				Subtype: "can_use_tool",
+			},
+		}
+		if err := writeJSONLine(writer, controlReq); err != nil {
+			serverErr <- err
+			return
+		}
+		controlRaw, err := readJSONLine(scanner)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+		var controlResp ControlResponse
+		if err := json.Unmarshal(controlRaw, &controlResp); err != nil {
+			serverErr <- err
+			return
+		}
+		if controlResp.Response.RequestID != requestID || controlResp.Response.Subtype != "success" {
+			serverErr <- errors.New("unexpected control response")
+			return
+		}
+		if controlResp.Response.Response == nil || controlResp.Response.Response.Behavior != "allow" {
+			serverErr <- errors.New("expected allow response")
+			return
+		}
+		resultPayload := map[string]any{
+			"type":        "result",
+			"session_id":  "session-1",
+			"result":      map[string]any{"result": "final"},
+			"is_error":    false,
+			"duration_ms": 123,
+			"num_turns":   1,
+			"stop_reason": "end",
+			"usage": map[string]any{
+				"input_tokens":  1,
+				"output_tokens": 2,
+			},
+		}
+		if err := writeJSONLine(writer, resultPayload); err != nil {
+			serverErr <- err
+			return
+		}
+		serverErr <- nil
+	}()
+
+	if err := client.initialize(ctx, Options{}); err != nil {
+		t.Fatalf("initialize failed: %v", err)
+	}
+	var events []Event
+	result, err := client.Turn(ctx, TurnParams{Prompt: "Hello"}, func(event Event) {
+		events = append(events, event)
+	})
+	if err != nil {
+		t.Fatalf("turn failed: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+	if _, ok := events[0].(SystemMessage); !ok {
+		t.Fatalf("expected system message, got %T", events[0])
+	}
+	if _, ok := events[1].(AssistantMessage); !ok {
+		t.Fatalf("expected assistant message, got %T", events[1])
+	}
+	if result.Response != "final" {
+		t.Fatalf("expected response 'final', got %q", result.Response)
+	}
+	if result.DurationMs != 123 || result.NumTurns != 1 {
+		t.Fatalf("unexpected duration or turns: %+v", result)
+	}
+	if result.StopReason != "end" {
+		t.Fatalf("unexpected stop reason: %q", result.StopReason)
+	}
+	if result.Usage == nil || result.Usage.InputTokens != 1 || result.Usage.OutputTokens != 2 {
+		t.Fatalf("unexpected usage: %+v", result.Usage)
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("server error: %v", err)
 	}
 }
 
@@ -224,6 +467,62 @@ func TestCloseForcesKill(t *testing.T) {
 			t.Fatalf("expected SIGKILL, got %v", status.Signal())
 		}
 	}
+}
+
+func newMockPipeClient(t *testing.T) (*Client, *bufio.Scanner, *bufio.Writer, func()) {
+	t.Helper()
+	stdinReader, stdinWriter := io.Pipe()
+	stdoutReader, stdoutWriter := io.Pipe()
+	ctx, cancel := context.WithCancel(context.Background())
+	transport := newTransport(stdinWriter, stdoutReader)
+	readCh, errCh := transport.StartRead(ctx)
+	client := &Client{
+		transport: transport,
+		readCh:    readCh,
+		errCh:     errCh,
+		waitCh:    make(chan struct{}),
+		closed:    make(chan struct{}),
+	}
+	scanner := bufio.NewScanner(stdinReader)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxScannerBuffer)
+	writer := bufio.NewWriter(stdoutWriter)
+	cleanup := func() {
+		cancel()
+		_ = stdoutWriter.Close()
+		_ = stdinReader.Close()
+	}
+	return client, scanner, writer, cleanup
+}
+
+func readJSONLine(scanner *bufio.Scanner) (json.RawMessage, error) {
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return nil, err
+		}
+		return nil, io.EOF
+	}
+	return json.RawMessage(append([]byte(nil), scanner.Bytes()...)), nil
+}
+
+func writeJSONLine(writer *bufio.Writer, payload any) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	if _, err := writer.Write(data); err != nil {
+		return err
+	}
+	return writer.Flush()
+}
+
+func containsEnv(env []string, target string) bool {
+	for _, entry := range env {
+		if entry == target {
+			return true
+		}
+	}
+	return false
 }
 
 type bufferWriteCloser struct {

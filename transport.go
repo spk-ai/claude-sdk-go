@@ -27,14 +27,24 @@ func (t *transport) StartRead(ctx context.Context) (<-chan json.RawMessage, <-ch
 	go func() {
 		defer close(messages)
 		defer close(errs)
+		done := make(chan struct{})
+		defer close(done)
+		go func() {
+			select {
+			case <-ctx.Done():
+				_ = t.stdout.Close()
+			case <-done:
+			}
+		}()
 		scanner := bufio.NewScanner(t.stdout)
 		buffer := make([]byte, 0, 64*1024)
 		scanner.Buffer(buffer, maxScannerBuffer)
-		for scanner.Scan() {
-			select {
-			case <-ctx.Done():
+		for {
+			if ctx.Err() != nil {
 				return
-			default:
+			}
+			if !scanner.Scan() {
+				break
 			}
 			line := strings.TrimSpace(scanner.Text())
 			if line == "" {
@@ -43,9 +53,14 @@ func (t *transport) StartRead(ctx context.Context) (<-chan json.RawMessage, <-ch
 			if !strings.HasPrefix(line, "{") {
 				continue
 			}
-			messages <- json.RawMessage(append([]byte(nil), line...))
+			payload := json.RawMessage(append([]byte(nil), line...))
+			select {
+			case <-ctx.Done():
+				return
+			case messages <- payload:
+			}
 		}
-		if err := scanner.Err(); err != nil {
+		if err := scanner.Err(); err != nil && ctx.Err() == nil {
 			errs <- err
 		}
 	}()

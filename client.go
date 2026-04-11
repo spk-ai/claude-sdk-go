@@ -57,9 +57,6 @@ type EventHandler func(event Event)
 
 // Start spawns the Claude Code subprocess and performs the initialize handshake.
 func Start(ctx context.Context, opts Options) (*Client, error) {
-	if ctx == nil {
-		return nil, errors.New("context is required")
-	}
 	if opts.BinaryPath == "" {
 		opts.BinaryPath = defaultBinaryPath
 	}
@@ -68,7 +65,11 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 	if opts.WorkDir != "" {
 		cmd.Dir = opts.WorkDir
 	}
-	cmd.Stderr = os.Stderr
+	stderr := opts.Stderr
+	if stderr == nil {
+		stderr = os.Stderr
+	}
+	cmd.Stderr = stderr
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
@@ -96,8 +97,12 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 		close(client.waitCh)
 	}()
 	go func() {
-		<-ctx.Done()
-		_ = client.Close()
+		select {
+		case <-ctx.Done():
+			_ = client.Close()
+		case <-client.closed:
+			return
+		}
 	}()
 	if err := client.initialize(ctx, opts); err != nil {
 		_ = client.Close()
@@ -108,9 +113,6 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 
 // Turn sends a user message and blocks until the turn completes.
 func (c *Client) Turn(ctx context.Context, params TurnParams, handler EventHandler) (*TurnResult, error) {
-	if ctx == nil {
-		return nil, errors.New("context is required")
-	}
 	c.turnMu.Lock()
 	defer c.turnMu.Unlock()
 	if c.isClosed() {
@@ -255,9 +257,6 @@ func (c *Client) initialize(ctx context.Context, opts Options) error {
 }
 
 func (c *Client) handleControlRequest(request *ControlRequestMessage) error {
-	if request == nil {
-		return nil
-	}
 	if request.Request.Subtype != "can_use_tool" {
 		return nil
 	}
@@ -389,7 +388,7 @@ func parseIncomingMessage(raw json.RawMessage) (parsedMessage, error) {
 		Type string `json:"type"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return parsedMessage{kind: messageUnknown}, nil
+		return parsedMessage{}, err
 	}
 	switch envelope.Type {
 	case "system":
