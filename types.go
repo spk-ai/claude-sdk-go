@@ -49,10 +49,6 @@ const (
 )
 
 func (assistantErr *AssistantError) UnmarshalJSON(data []byte) error {
-	if string(data) == "null" {
-		*assistantErr = ""
-		return nil
-	}
 	var asString string
 	if err := json.Unmarshal(data, &asString); err == nil {
 		*assistantErr = AssistantError(asString)
