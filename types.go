@@ -1,6 +1,9 @@
 package claude
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+)
 
 // Event represents a streaming event emitted during a turn.
 type Event interface {
@@ -33,9 +36,40 @@ func (AssistantMessage) EventType() string {
 }
 
 // AssistantError represents an API-level error from Claude.
-type AssistantError struct {
-	Type    string `json:"type"`
-	Message string `json:"message,omitempty"`
+type AssistantError string
+
+const (
+	AssistantErrorAuthenticationFailed AssistantError = "authentication_failed"
+	AssistantErrorBillingError         AssistantError = "billing_error"
+	AssistantErrorRateLimit            AssistantError = "rate_limit"
+	AssistantErrorInvalidRequest       AssistantError = "invalid_request"
+	AssistantErrorServerError          AssistantError = "server_error"
+	AssistantErrorMaxOutputTokens      AssistantError = "max_output_tokens"
+	AssistantErrorUnknown              AssistantError = "unknown"
+)
+
+func (assistantErr *AssistantError) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*assistantErr = ""
+		return nil
+	}
+	var asString string
+	if err := json.Unmarshal(data, &asString); err == nil {
+		*assistantErr = AssistantError(asString)
+		return nil
+	}
+	var payload struct {
+		Type    string `json:"type"`
+		Message string `json:"message,omitempty"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return err
+	}
+	if payload.Type == "" {
+		return errors.New("assistant error type missing")
+	}
+	*assistantErr = AssistantError(payload.Type)
+	return nil
 }
 
 // UserMessage represents tool result messages emitted by Claude Code.
