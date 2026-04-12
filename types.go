@@ -32,10 +32,37 @@ func (AssistantMessage) EventType() string {
 	return "assistant"
 }
 
-// AssistantError represents an API-level error from Claude.
-type AssistantError struct {
-	Type    string `json:"type"`
-	Message string `json:"message,omitempty"`
+// AssistantError represents an API-level error string from the Claude Code CLI.
+// The CLI emits this as a plain JSON string (e.g. "server_error", "rate_limit").
+// The custom UnmarshalJSON also accepts an object with a "type" field for
+// forward-compatibility.
+type AssistantError string
+
+// Known AssistantError values emitted by the Claude Code CLI.
+const (
+	AssistantErrorAuthenticationFailed AssistantError = "authentication_failed"
+	AssistantErrorBillingError         AssistantError = "billing_error"
+	AssistantErrorRateLimit            AssistantError = "rate_limit"
+	AssistantErrorInvalidRequest       AssistantError = "invalid_request"
+	AssistantErrorServerError          AssistantError = "server_error"
+	AssistantErrorMaxOutputTokens      AssistantError = "max_output_tokens"
+	AssistantErrorUnknown              AssistantError = "unknown"
+)
+
+func (e *AssistantError) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		*e = AssistantError(s)
+		return nil
+	}
+	var obj struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	*e = AssistantError(obj.Type)
+	return nil
 }
 
 // UserMessage represents tool result messages emitted by Claude Code.

@@ -387,6 +387,82 @@ func TestTurnEndToEnd(t *testing.T) {
 	}
 }
 
+func TestAssistantErrorUnmarshalString(t *testing.T) {
+	raw := `{"type":"assistant","message":{"role":"assistant","content":[]},"error":"server_error","session_id":"abc"}`
+	parsed, err := parseIncomingMessage(json.RawMessage(raw))
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	msg, ok := parsed.event.(AssistantMessage)
+	if !ok {
+		t.Fatalf("expected AssistantMessage, got %T", parsed.event)
+	}
+	if msg.Error == nil {
+		t.Fatal("expected non-nil error")
+	}
+	if *msg.Error != AssistantErrorServerError {
+		t.Fatalf("expected server_error, got %q", *msg.Error)
+	}
+}
+
+func TestAssistantErrorUnmarshalObject(t *testing.T) {
+	raw := `{"type":"assistant","message":{"role":"assistant","content":[]},"error":{"type":"rate_limit"},"session_id":"abc"}`
+	parsed, err := parseIncomingMessage(json.RawMessage(raw))
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	msg, ok := parsed.event.(AssistantMessage)
+	if !ok {
+		t.Fatalf("expected AssistantMessage, got %T", parsed.event)
+	}
+	if msg.Error == nil {
+		t.Fatal("expected non-nil error")
+	}
+	if *msg.Error != AssistantErrorRateLimit {
+		t.Fatalf("expected rate_limit, got %q", *msg.Error)
+	}
+}
+
+func TestAssistantErrorAllKnownValues(t *testing.T) {
+	values := []AssistantError{
+		AssistantErrorAuthenticationFailed,
+		AssistantErrorBillingError,
+		AssistantErrorRateLimit,
+		AssistantErrorInvalidRequest,
+		AssistantErrorServerError,
+		AssistantErrorMaxOutputTokens,
+		AssistantErrorUnknown,
+	}
+	for _, val := range values {
+		data, err := json.Marshal(val)
+		if err != nil {
+			t.Fatalf("marshal %q: %v", val, err)
+		}
+		var got AssistantError
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatalf("unmarshal %q: %v", val, err)
+		}
+		if got != val {
+			t.Fatalf("roundtrip: expected %q, got %q", val, got)
+		}
+	}
+}
+
+func TestAssistantMessageNoError(t *testing.T) {
+	raw := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}`
+	parsed, err := parseIncomingMessage(json.RawMessage(raw))
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	msg, ok := parsed.event.(AssistantMessage)
+	if !ok {
+		t.Fatalf("expected AssistantMessage, got %T", parsed.event)
+	}
+	if msg.Error != nil {
+		t.Fatalf("expected nil error, got %q", *msg.Error)
+	}
+}
+
 func TestTransportReadWrite(t *testing.T) {
 	stdout := io.NopCloser(strings.NewReader("[SandboxDebug] hi\n{\"type\":\"system\",\"subtype\":\"init\"}\nnotjson\n{\"type\":\"result\",\"result\":{\"result\":\"ok\"},\"is_error\":false}\n"))
 	stdin := &bufferWriteCloser{}
