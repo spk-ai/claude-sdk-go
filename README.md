@@ -37,6 +37,20 @@ if err != nil {
 fmt.Println(result.Response)
 ```
 
+## Result Diagnostics
+
+`TurnResult` preserves the CLI's `Subtype`, optional `APIErrorStatus` and
+`TerminalReason`. The status pointer is nil when absent or null; older CLIs keep
+the existing zero-value behavior. Unknown subtype/reason strings are preserved
+for forward compatibility, not interpreted as success or retry instructions.
+These fields match the [official SDK result metadata](https://github.com/anthropics/claude-agent-sdk-python/blob/main/src/claude_agent_sdk/types.py).
+
+Always check `IsError`: an API failure can have subtype `success`. `Turn` still
+returns the result without synthesizing a Go error or retrying the operation.
+Callers should allowlist metadata before logging it and avoid logging response
+text or raw error bodies. A restored session or an HTTP status alone does not
+establish whether a failed turn performed external side effects.
+
 ## Notes
 
 - Unknown message types are skipped to preserve forward compatibility.
