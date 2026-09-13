@@ -67,6 +67,24 @@ subscription. Then run `go test -run '^TestLiveSessionResumption$' -count=1 -v`.
 Do not put the token in a command line, shell history or a committed file. The
 test retains its isolated state and `evidence.json`; the normal suite skips it.
 
+## Result Diagnostics
+
+`TurnResult` preserves the CLI's `Subtype`, optional `APIErrorStatus` and
+`TerminalReason`. The status pointer is nil when absent or null; older CLIs keep
+the existing zero-value behavior. Unknown subtype/reason strings are preserved
+for forward compatibility, not interpreted as success or retry instructions.
+These fields match the [official SDK result metadata](https://github.com/anthropics/claude-agent-sdk-python/blob/main/src/claude_agent_sdk/types.py).
+
+Always check `IsError`: an API failure can have subtype `success`. `Turn` still
+returns the result without synthesizing a Go error or retrying the operation.
+Callers should allowlist metadata before logging it and avoid logging response
+text or raw error bodies. A restored session or an HTTP status alone does not
+establish whether a failed turn performed external side effects.
+
+This `lab/session-diagnostics-integration` branch combines the independently
+reviewable session-selection and diagnostic patches for local integration
+acceptance. It is not a proposed bundled upstream change.
+
 ## Notes
 
 - Unknown message types are skipped to preserve forward compatibility.

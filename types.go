@@ -131,6 +131,8 @@ type ResultMessage struct {
 	Usage             *Usage            `json:"usage,omitempty"`
 	ModelUsage        *ModelUsage       `json:"modelUsage,omitempty"`
 	StopReason        string            `json:"stop_reason,omitempty"`
+	APIErrorStatus    *int              `json:"api_error_status,omitempty"`
+	TerminalReason    string            `json:"terminal_reason,omitempty"`
 	PermissionDenials PermissionDenials `json:"permission_denials,omitempty"`
 }
 

@@ -43,13 +43,16 @@ type TurnParams struct {
 
 // TurnResult contains the outcome of a completed turn.
 type TurnResult struct {
-	SessionID  string
-	Response   string
-	IsError    bool
-	DurationMs int
-	NumTurns   int
-	Usage      *Usage
-	StopReason string
+	SessionID      string
+	Response       string
+	IsError        bool
+	DurationMs     int
+	NumTurns       int
+	Usage          *Usage
+	StopReason     string
+	Subtype        string
+	APIErrorStatus *int
+	TerminalReason string
 }
 
 // EventHandler receives streaming events during a turn.
@@ -465,12 +468,15 @@ func (result *ResultMessage) toTurnResult() *TurnResult {
 		return nil
 	}
 	return &TurnResult{
-		SessionID:  result.SessionID,
-		Response:   result.Result.Text,
-		IsError:    result.IsError,
-		DurationMs: result.DurationMs,
-		NumTurns:   result.NumTurns,
-		Usage:      result.Usage,
-		StopReason: result.StopReason,
+		SessionID:      result.SessionID,
+		Response:       result.Result.Text,
+		IsError:        result.IsError,
+		DurationMs:     result.DurationMs,
+		NumTurns:       result.NumTurns,
+		Usage:          result.Usage,
+		StopReason:     result.StopReason,
+		Subtype:        result.Subtype,
+		APIErrorStatus: result.APIErrorStatus,
+		TerminalReason: result.TerminalReason,
 	}
 }
