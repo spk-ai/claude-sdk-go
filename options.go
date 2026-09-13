@@ -13,4 +13,10 @@ type Options struct {
 	Model        string
 	MaxTurns     int
 	Stderr       io.Writer
+	// SessionID assigns a UUID to a new session. Mutually exclusive with Resume.
+	SessionID string
+	// Resume selects an existing session by ID, name, or transcript path. The
+	// CLI must have access to that session's persisted state. No fallback to a
+	// new session is attempted by the SDK.
+	Resume string
 }

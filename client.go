@@ -57,10 +57,20 @@ type EventHandler func(event Event)
 
 // Start spawns the Claude Code subprocess and performs the initialize handshake.
 func Start(ctx context.Context, opts Options) (*Client, error) {
+	if opts.SessionID != "" && opts.Resume != "" {
+		return nil, fmt.Errorf("SessionID and Resume are mutually exclusive")
+	}
 	if opts.BinaryPath == "" {
 		opts.BinaryPath = defaultBinaryPath
 	}
-	cmd := exec.Command(opts.BinaryPath, "--output-format", "stream-json", "--input-format", "stream-json", "--verbose")
+	args := []string{"--output-format", "stream-json", "--input-format", "stream-json", "--verbose"}
+	if opts.SessionID != "" {
+		args = append(args, "--session-id="+opts.SessionID)
+	}
+	if opts.Resume != "" {
+		args = append(args, "--resume="+opts.Resume)
+	}
+	cmd := exec.Command(opts.BinaryPath, args...)
 	cmd.Env = buildEnv(opts.Env)
 	if opts.WorkDir != "" {
 		cmd.Dir = opts.WorkDir
