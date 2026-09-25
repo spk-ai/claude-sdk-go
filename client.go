@@ -1,3 +1,6 @@
+// Package claude runs the Claude Code CLI over its NDJSON stream protocol.
+// Session selection is delegated to the CLI; applications own durable storage,
+// single-writer coordination, and reconciliation of interrupted external work.
 package claude
 
 import (
@@ -56,6 +59,9 @@ type TurnResult struct {
 type EventHandler func(event Event)
 
 // Start spawns the Claude Code subprocess and performs the initialize handshake.
+// Nonempty SessionID and Resume together are rejected before spawning. Selectors
+// are passed unchanged as single CLI arguments; the CLI validates their meaning.
+// Start neither retries a failed resume nor verifies the resumed session identity.
 func Start(ctx context.Context, opts Options) (*Client, error) {
 	if opts.SessionID != "" && opts.Resume != "" {
 		return nil, fmt.Errorf("SessionID and Resume are mutually exclusive")
@@ -122,6 +128,8 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 }
 
 // Turn sends a user message and blocks until the turn completes.
+// A CLI error result is returned with IsError set and a nil Go error; callers must
+// inspect the result as well as err before treating the turn as successful.
 func (c *Client) Turn(ctx context.Context, params TurnParams, handler EventHandler) (*TurnResult, error) {
 	c.turnMu.Lock()
 	defer c.turnMu.Unlock()

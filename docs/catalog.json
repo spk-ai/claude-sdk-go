@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "documents": [
+    {
+      "id": "usage",
+      "path": "README.md",
+      "title": "Claude Code Go SDK",
+      "purpose": "SDK usage, native-session storage coordination, security, and opt-in acceptance setup.",
+      "kind": "operations"
+    },
+    {
+      "id": "contribution",
+      "path": "AGENTS.md",
+      "title": "Repository Guidance",
+      "purpose": "Source-adjacent Go API documentation, structural navigation, and credential-free test discipline.",
+      "kind": "contribution"
+    }
+  ]
+}
