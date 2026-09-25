@@ -1,3 +1,6 @@
+// Package claude runs the Claude Code CLI over its NDJSON stream protocol.
+// Session selection is delegated to the CLI; applications own durable storage,
+// single-writer coordination, and reconciliation of interrupted external work.
 package claude
 
 import (
@@ -42,16 +45,23 @@ type TurnParams struct {
 }
 
 // TurnResult contains the outcome of a completed turn.
+// Check IsError independently of the diagnostic fields; a "success" subtype can
+// accompany an API failure. Metadata alone does not establish that retry is safe.
 type TurnResult struct {
-	SessionID      string
-	Response       string
-	IsError        bool
-	DurationMs     int
-	NumTurns       int
-	Usage          *Usage
-	StopReason     string
-	Subtype        string
+	SessionID  string
+	Response   string
+	IsError    bool
+	DurationMs int
+	NumTurns   int
+	Usage      *Usage
+	StopReason string
+	// Subtype preserves the CLI's classification, including unknown values.
+	// It is empty when omitted by the CLI.
+	Subtype string
+	// APIErrorStatus is nil when the CLI omits the status or sends null.
 	APIErrorStatus *int
+	// TerminalReason preserves the CLI's reason, including unknown values,
+	// independently of StopReason. It is empty when omitted by the CLI.
 	TerminalReason string
 }
 
@@ -59,6 +69,9 @@ type TurnResult struct {
 type EventHandler func(event Event)
 
 // Start spawns the Claude Code subprocess and performs the initialize handshake.
+// Nonempty SessionID and Resume together are rejected before spawning. Selectors
+// are passed unchanged as single CLI arguments; the CLI validates their meaning.
+// Start neither retries a failed resume nor verifies the resumed session identity.
 func Start(ctx context.Context, opts Options) (*Client, error) {
 	if opts.SessionID != "" && opts.Resume != "" {
 		return nil, fmt.Errorf("SessionID and Resume are mutually exclusive")
@@ -125,6 +138,8 @@ func Start(ctx context.Context, opts Options) (*Client, error) {
 }
 
 // Turn sends a user message and blocks until the turn completes.
+// A received CLI result returns a nil Go error even when IsError is set; callers
+// must inspect both. Diagnostic fields do not trigger retries or synthesized errors.
 func (c *Client) Turn(ctx context.Context, params TurnParams, handler EventHandler) (*TurnResult, error) {
 	c.turnMu.Lock()
 	defer c.turnMu.Unlock()

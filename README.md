@@ -39,10 +39,8 @@ fmt.Println(result.Response)
 
 ## Resume a Session
 
-Preserve the CLI's session storage and pass the previous `TurnResult.SessionID`
-as `Options.Resume` when starting a replacement subprocess. For a new session,
-`Options.SessionID` can assign a UUID before the first turn. These options are
-mutually exclusive; leaving both unset preserves the existing startup behavior.
+Preserve the CLI's session storage and reuse the previous `TurnResult.SessionID`
+when starting a replacement subprocess:
 
 ```go
 client, err := claude.Start(ctx, claude.Options{
@@ -51,11 +49,12 @@ client, err := claude.Start(ctx, claude.Options{
 })
 ```
 
-These options forward the CLI's [session selection flags](https://code.claude.com/docs/en/cli-reference).
-They do not persist or copy session files, retry a failed resume, or establish
-whether an interrupted turn already performed external side effects. Keep
-unrelated sessions in separate state directories and coordinate one writer per
-session. Missing or ambiguous state needs application-level reconciliation.
+The session-option contract lives in [options.go](options.go) and
+[Start](client.go); native storage is owned by the
+[CLI](https://code.claude.com/docs/en/cli-reference). Keep unrelated sessions in
+separate state directories and coordinate one writer per session. Missing or
+ambiguous state and possible side effects of interrupted turns require
+application-level reconciliation.
 
 An opt-in native acceptance test replaces the CLI process between two text-only
 turns and verifies recovery of the same session and a random marker. It disables
@@ -69,19 +68,13 @@ test retains its isolated state and `evidence.json`; the normal suite skips it.
 
 ## Result Diagnostics
 
-`TurnResult` preserves the CLI's `Subtype`, optional `APIErrorStatus` and
-`TerminalReason`. The status pointer is nil when absent or null; older CLIs keep
-the existing zero-value behavior. Unknown subtype/reason strings are preserved
-for forward compatibility, not interpreted as success or retry instructions.
-These fields match the [official SDK result metadata](https://github.com/anthropics/claude-agent-sdk-python/blob/main/src/claude_agent_sdk/types.py).
-
-Always check `IsError`: an API failure can have subtype `success`. `Turn` still
-returns the result without synthesizing a Go error or retrying the operation.
+See [TurnResult and Turn](client.go), [ResultMessage](types.go), and the
+[diagnostic contract tests](result_diagnostics_test.go) for result semantics.
 Callers should allowlist metadata before logging it and avoid logging response
 text or raw error bodies. A restored session or an HTTP status alone does not
 establish whether a failed turn performed external side effects.
 
-This `lab/session-diagnostics-integration` branch combines the independently
+This integration checkout combines the independently
 reviewable session-selection and diagnostic patches for local integration
 acceptance. It is not a proposed bundled upstream change.
 

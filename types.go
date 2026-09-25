@@ -120,6 +120,12 @@ type ContentBlock struct {
 }
 
 // ResultMessage signals turn completion.
+// Diagnostic strings are decoded without enum validation and forwarded to
+// TurnResult without reclassifying IsError. APIErrorStatus accepts JSON integers
+// representable by Go int, or null/absence as nil; malformed values fail parsing.
+//
+// @see client.go
+// @see result_diagnostics_test.go
 type ResultMessage struct {
 	Type              string            `json:"type"`
 	SessionID         string            `json:"session_id,omitempty"`
