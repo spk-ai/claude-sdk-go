@@ -2,10 +2,8 @@
 
 ## Living Documentation
 
-- Keep implemented contracts beside the owning Go package, exported API, or
-  protocol handler. Document option defaults, process/session ownership, failure
-  behavior, diagnostic compatibility, and CLI delegation limits; update comments
-  and tests with changes.
+- Keep non-obvious contracts and rationale beside the owning Go code; update
+  comments and tests with behavior changes instead of narrating the implementation.
 - Keep Markdown for usage, setup, security, coordination, and verification;
   link to Go owners instead of repeating their implementation contracts.
 - Maintain `docs/catalog.json` as a curated Markdown index, not a generated
@@ -21,21 +19,16 @@
   test links with focused excerpts; Go methods use `Type.Method`. Cross-repo
   `@see` targets use repo selectors and extensionless components; local targets
   retain their source extension and are repo-relative.
-- For standalone upstream use without Navigator, fall back to native Go package
-  structure, `git diff upstream/main --stat`, `rg --files`, `go list ./...`,
-  `go doc`, and targeted source/test reads. Do not depend on Navigator or any
-  absolute workspace/lab path.
+- Without Navigator, use native Go package structure and documentation, then
+  targeted source/test reads. Do not require any particular workspace or lab path.
 
 ## Verification
 
-- Use the Go version required by `go.mod`. Run credential-free tests with
-  `go test -mod=readonly ./...`; use `-race` for subprocess/session lifecycle work.
-  `session_test.go` uses a local helper process and `result_diagnostics_test.go`
-  uses local pipes rather than a provider CLI.
-- Use a disposable `HOME`, clear inherited CLI state/auth overrides, and leave
-  `CLAUDE_SDK_LIVE_SESSION` unset. The native session acceptance fixture requires
-  separate explicit authorization; never access provider credentials or enable
-  external fixtures for ordinary local verification.
+- Use the Go version required by `go.mod`. For behavior changes, run focused
+  credential-free tests with `go test -mod=readonly`; add `-race` for lifecycle work.
+- Use a disposable `HOME` and an allowlisted environment without inherited CLI
+  state, authentication, or live-fixture overrides. Native acceptance requires
+  separate explicit authorization; never enable it for ordinary local verification.
 - Run `gofmt` on edited Go files and `git diff --check`. For documentation-only
   work, verify source tokens and build/tool directives are unchanged apart from
   ordinary comments. Avoid `go.mod`/`go.sum` changes and generated output; report

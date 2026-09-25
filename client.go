@@ -24,6 +24,8 @@ var (
 )
 
 // Client manages a Claude Code subprocess.
+// Tool permissions are approved without an application callback; callers must
+// enforce their execution trust boundary outside this client.
 type Client struct {
 	cmd       *exec.Cmd
 	transport *transport
@@ -411,6 +413,8 @@ type parsedMessage struct {
 	controlCancel   *ControlCancelRequestMessage
 }
 
+// parseIncomingMessage tolerates unknown message types for CLI forward
+// compatibility, while malformed known messages remain errors.
 func parseIncomingMessage(raw json.RawMessage) (parsedMessage, error) {
 	var envelope struct {
 		Type string `json:"type"`
